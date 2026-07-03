@@ -76,7 +76,7 @@ YANDEX_EMBEDDING_MODEL=text-search-doc
 YANDEX_EMBEDDING_MODEL_URI=
 
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_GENERATION_MODEL=mistral
+OLLAMA_GENERATION_MODEL=qwen2.5:1.5b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_EMBEDDING_MAX_CHARS=1000
 
@@ -131,7 +131,7 @@ ollama serve
 В отдельном терминале загрузите модели:
 
 ```bash
-ollama pull mistral
+ollama pull qwen2.5:1.5b
 ollama pull nomic-embed-text
 ```
 
@@ -140,7 +140,7 @@ ollama pull nomic-embed-text
 ```env
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_GENERATION_MODEL=mistral
+OLLAMA_GENERATION_MODEL=qwen2.5:1.5b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_EMBEDDING_MAX_CHARS=1000
 ```
