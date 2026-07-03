@@ -6,15 +6,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.graph.repository import GraphRepository
+from src.graph.repository import normalize_entity_name
+from src.graph.taxonomy import DEFAULT_ENTITY_TYPE
+from src.graph.taxonomy import normalize_entity_type, normalize_relation_type
 from src.llm.base import LLMClient
-from src.llm.prompts import ENTITY_TYPES, RELATION_TYPES, build_extraction_prompt
+from src.llm.prompts import build_extraction_prompt
 from src.utils.text_normalization import canonicalize_term
-
-
-VALID_ENTITY_TYPES = set(ENTITY_TYPES)
-VALID_RELATION_TYPES = set(RELATION_TYPES)
-DEFAULT_ENTITY_TYPE = "Unknown"
-DEFAULT_RELATION_TYPE = "mentions"
 
 
 @dataclass(frozen=True)
@@ -32,6 +29,9 @@ class ExtractionStats:
     chunks_processed: int
     chunks_succeeded: int
     chunks_failed: int
+    chunks_with_facts: int
+    chunks_skipped_existing: int
+    expected_llm_requests: int
     nodes_created: int
     facts_created: int
     edges_created: int
@@ -83,9 +83,9 @@ class KnowledgeExtractor:
             )
 
     def extract_and_store(self, limit: int | None = None) -> ExtractionStats:
-        chunks_df = self.repository.list_chunks(limit=limit)
-        chunks = chunks_df.to_dict("records")
-        chunks_total = len(chunks)
+        chunks_total = self.repository.count_chunks()
+        chunks_with_facts = self.repository.count_chunks_with_facts()
+        chunks = self.repository.list_chunks_without_facts(limit=limit)
         chunks_processed = 0
         chunks_succeeded = 0
         chunks_failed = 0
@@ -95,9 +95,12 @@ class KnowledgeExtractor:
         errors: list[str] = []
 
         for chunk in chunks:
+            chunk_id = str(chunk.get("chunk_id") or chunk.get("id") or "")
+            if self.repository.chunk_has_facts(chunk_id):
+                continue
+
             chunks_processed += 1
             result = self.extract_chunk(chunk)
-            chunk_id = str(chunk.get("chunk_id") or chunk.get("id") or "")
             document_id = str(chunk.get("document_id") or "")
 
             if result.error:
@@ -160,6 +163,9 @@ class KnowledgeExtractor:
             chunks_processed=chunks_processed,
             chunks_succeeded=chunks_succeeded,
             chunks_failed=chunks_failed,
+            chunks_with_facts=chunks_with_facts,
+            chunks_skipped_existing=chunks_with_facts,
+            expected_llm_requests=len(chunks),
             nodes_created=len(node_ids),
             facts_created=facts_created,
             edges_created=edges_created,
@@ -205,9 +211,7 @@ def _validate_entities(value: Any) -> list[dict[str, Any]]:
         label = _clean_string(item.get("label"))
         if not label:
             continue
-        entity_type = _clean_string(item.get("type")) or DEFAULT_ENTITY_TYPE
-        if entity_type not in VALID_ENTITY_TYPES:
-            entity_type = DEFAULT_ENTITY_TYPE
+        entity_type = normalize_entity_type(_clean_string(item.get("type")))
         key = (canonicalize_term(label), entity_type)
         if key in seen:
             continue
@@ -255,9 +259,7 @@ def _validate_relations(value: Any) -> list[dict[str, Any]]:
         target = _clean_string(item.get("target"))
         if not source or not target:
             continue
-        relation = _clean_string(item.get("relation")) or DEFAULT_RELATION_TYPE
-        if relation not in VALID_RELATION_TYPES:
-            relation = DEFAULT_RELATION_TYPE
+        relation = normalize_relation_type(_clean_string(item.get("relation")))
         relations.append(
             {
                 "source": source,
@@ -270,11 +272,11 @@ def _validate_relations(value: Any) -> list[dict[str, Any]]:
 
 
 def _find_entity_type(entities: list[dict[str, Any]], label: str) -> str:
-    canonical = canonicalize_term(label)
+    canonical = normalize_entity_name(label)
     for entity in entities:
-        if canonicalize_term(str(entity.get("label", ""))) == canonical:
+        if normalize_entity_name(str(entity.get("label", ""))) == canonical:
             entity_type = str(entity.get("type") or DEFAULT_ENTITY_TYPE)
-            return entity_type if entity_type in VALID_ENTITY_TYPES else DEFAULT_ENTITY_TYPE
+            return normalize_entity_type(entity_type)
     return DEFAULT_ENTITY_TYPE
 
 

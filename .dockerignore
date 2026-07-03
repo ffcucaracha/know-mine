@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/
+.gitignore
+
+data/raw/
+data/processed/
+data/chroma_db/
+chroma_db/
+*.sqlite
+*.db
+
+.DS_Store
+.vscode/
+.idea/

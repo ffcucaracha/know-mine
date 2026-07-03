@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import chromadb
+
+from src.utils.sanitize import is_nan_like, safe_float_or_none, safe_int_or_none
+from src.utils.sanitize import sanitize_source_metadata
 
 
 @dataclass(frozen=True)
@@ -13,6 +15,7 @@ class SearchResult:
     chunk_id: str
     document_id: str
     filename: str
+    source_path: str
     page_start: int | None
     page_end: int | None
     text: str
@@ -51,11 +54,13 @@ class VectorStore:
             chunk_id = str(chunk.get("chunk_id") or chunk.get("id"))
             document_id = str(chunk.get("document_id", ""))
             filename = str(chunk.get("filename", ""))
+            source_path = str(chunk.get("source_path") or chunk.get("path") or "")
             metadata = sanitize_chroma_metadata(
                 {
                     "chunk_id": chunk_id,
                     "document_id": document_id,
                     "filename": filename,
+                    "source_path": source_path,
                     "page_start": chunk.get("page_start"),
                     "page_end": chunk.get("page_end"),
                 }
@@ -72,6 +77,14 @@ class VectorStore:
             metadatas=metadatas,
         )
 
+    def get_existing_ids(self) -> set[str]:
+        try:
+            result = self.collection.get(include=[])
+        except Exception:
+            result = self.collection.get()
+        ids = result.get("ids", [])
+        return {str(chunk_id) for chunk_id in ids}
+
     def search(self, query_embedding: list[float], top_k: int = 8) -> list[SearchResult]:
         if not query_embedding:
             return []
@@ -87,43 +100,21 @@ class VectorStore:
 
         search_results: list[SearchResult] = []
         for index, metadata in enumerate(metadatas):
-            metadata = metadata or {}
+            metadata = sanitize_source_metadata(metadata or {})
+            distance = safe_float_or_none(distances[index]) if index < len(distances) else None
             search_results.append(
                 SearchResult(
-                    chunk_id=str(metadata.get("chunk_id", "")),
-                    document_id=str(metadata.get("document_id", "")),
-                    filename=str(metadata.get("filename", "")),
+                    chunk_id=str(metadata.get("chunk_id") or ""),
+                    document_id=str(metadata.get("document_id") or ""),
+                    filename=str(metadata.get("filename") or ""),
+                    source_path=str(metadata.get("source_path") or ""),
                     page_start=safe_int_or_none(metadata.get("page_start")),
                     page_end=safe_int_or_none(metadata.get("page_end")),
                     text=str(documents[index]) if index < len(documents) else "",
-                    distance=float(distances[index]) if index < len(distances) else None,
+                    distance=distance,
                 )
             )
         return search_results
-
-
-def is_nan_like(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return value.strip().lower() in {"", "nan", "nat", "none", "null"}
-    try:
-        return bool(value != value)
-    except Exception:
-        pass
-    try:
-        return math.isnan(float(value))
-    except (TypeError, ValueError, OverflowError):
-        return False
-
-
-def safe_int_or_none(value: Any) -> int | None:
-    if is_nan_like(value):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
 
 
 def sanitize_chroma_metadata(metadata: dict[str, Any]) -> dict[str, str | int | float | bool]:
@@ -135,7 +126,7 @@ def sanitize_chroma_metadata(metadata: dict[str, Any]) -> dict[str, str | int | 
                 sanitized[key] = page_value
             continue
 
-        if key in {"chunk_id", "document_id", "filename"}:
+        if key in {"chunk_id", "document_id", "filename", "source_path"}:
             sanitized[key] = "" if is_nan_like(value) else str(value)
             continue
 

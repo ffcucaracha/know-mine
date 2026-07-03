@@ -1,31 +1,9 @@
 from __future__ import annotations
 
+from src.graph.taxonomy import ENTITY_TYPES, RELATION_TYPES
+from src.graph.taxonomy import format_entity_types_for_prompt
+from src.graph.taxonomy import format_relation_types_for_prompt
 
-ENTITY_TYPES = (
-    "Material",
-    "Process",
-    "Equipment",
-    "Property",
-    "Experiment",
-    "Publication",
-    "Expert",
-    "Facility",
-    "Condition",
-    "Result",
-    "Unknown",
-)
-
-RELATION_TYPES = (
-    "uses_material",
-    "operates_at_condition",
-    "produces_output",
-    "described_in",
-    "validated_by",
-    "contradicts",
-    "applies_to",
-    "has_effect",
-    "mentions",
-)
 
 EXTRACTION_SYSTEM_PROMPT = """
 Ты извлекаешь структурированные знания из R&D и научно-технических текстов
@@ -43,11 +21,14 @@ EXTRACTION_SYSTEM_PROMPT = """
 - публикации, экспертов, организации и географию.
 
 Допустимые entity.type:
-Material, Process, Equipment, Property, Experiment, Publication, Expert, Facility, Condition, Result, Unknown.
+{entity_types}.
 
 Допустимые relations.relation:
-uses_material, operates_at_condition, produces_output, described_in, validated_by,
-contradicts, applies_to, has_effect, mentions.
+{relation_types}.
+
+Используй только перечисленные entity.type и relations.relation.
+Если тип сущности неясен, entity.type = Unknown.
+Если тип связи неясен, relations.relation = mentions.
 
 Требования к значениям:
 - confidence всегда число от 0 до 1.
@@ -56,7 +37,10 @@ contradicts, applies_to, has_effect, mentions.
 - numeric_unit содержит единицу измерения, если она указана: мг/л, °C, т/сут, %, м/с, МПа и т.п.
 - geography заполняй только если география явно указана: Россия, зарубежная практика, страна, регион.
 - evidence должен быть коротким фрагментом из исходного текста, подтверждающим связь.
-""".strip()
+""".strip().format(
+    entity_types=format_entity_types_for_prompt(),
+    relation_types=format_relation_types_for_prompt(),
+)
 
 EXTRACTION_USER_PROMPT_TEMPLATE = """
 Файл-источник: {filename}
@@ -68,7 +52,7 @@ EXTRACTION_USER_PROMPT_TEMPLATE = """
   "entities": [
     {{
       "label": "...",
-      "type": "Material|Process|Equipment|Property|Experiment|Publication|Expert|Facility|Condition|Result|Unknown"
+      "type": "{entity_types_schema}"
     }}
   ],
   "facts": [
@@ -89,7 +73,7 @@ EXTRACTION_USER_PROMPT_TEMPLATE = """
   "relations": [
     {{
       "source": "...",
-      "relation": "uses_material|operates_at_condition|produces_output|described_in|validated_by|contradicts|applies_to|has_effect|mentions",
+      "relation": "{relation_types_schema}",
       "target": "...",
       "evidence": "..."
     }}
@@ -147,6 +131,8 @@ ANSWER_PROMPT = ANSWER_SYSTEM_PROMPT
 def build_extraction_prompt(chunk_text: str, filename: str) -> tuple[str, str]:
     user_prompt = EXTRACTION_USER_PROMPT_TEMPLATE.format(
         filename=filename,
+        entity_types_schema="|".join(ENTITY_TYPES),
+        relation_types_schema="|".join(RELATION_TYPES),
         chunk_text=chunk_text,
     )
     return EXTRACTION_SYSTEM_PROMPT, user_prompt

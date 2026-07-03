@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS documents (
     path TEXT NOT NULL,
     doc_type TEXT NOT NULL,
     title TEXT,
+    file_hash TEXT,
     text_hash TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -15,6 +16,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     document_id TEXT NOT NULL,
     chunk_index INTEGER NOT NULL,
     text TEXT NOT NULL,
+    chunk_hash TEXT,
     page_start INTEGER,
     page_end INTEGER,
     FOREIGN KEY(document_id) REFERENCES documents(id)
@@ -24,7 +26,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     type TEXT NOT NULL,
-    normalized_label TEXT NOT NULL
+    normalized_label TEXT NOT NULL,
+    canonical_name TEXT
 );
 
 CREATE TABLE IF NOT EXISTS facts (
@@ -83,13 +86,46 @@ CREATE TABLE IF NOT EXISTS llm_usage_events (
     metadata_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS favorites (
+    favorite_id TEXT PRIMARY KEY,
+    chunk_id TEXT,
+    document_id TEXT,
+    filename TEXT NOT NULL,
+    source_path TEXT,
+    page_start INTEGER,
+    page_end INTEGER,
+    score REAL,
+    snippet TEXT,
+    added_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS report_history (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    question TEXT NOT NULL,
+    answer_preview TEXT,
+    markdown TEXT NOT NULL,
+    sources_count INTEGER DEFAULT 0,
+    facts_count INTEGER DEFAULT 0,
+    actualization_date TEXT,
+    filename TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_documents_file_hash ON documents(file_hash);
+CREATE INDEX IF NOT EXISTS idx_documents_text_hash ON documents(text_hash);
+CREATE INDEX IF NOT EXISTS idx_chunks_chunk_hash ON chunks(chunk_hash);
 CREATE INDEX IF NOT EXISTS idx_facts_document_id ON facts(document_id);
 CREATE INDEX IF NOT EXISTS idx_facts_chunk_id ON facts(chunk_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_normalized_label ON nodes(normalized_label);
+CREATE INDEX IF NOT EXISTS idx_nodes_canonical_name ON nodes(canonical_name);
 CREATE INDEX IF NOT EXISTS idx_edges_source_node_id ON edges(source_node_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target_node_id ON edges(target_node_id);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_provider ON llm_usage_events(provider);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_operation ON llm_usage_events(operation);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_success ON llm_usage_events(success);
+CREATE INDEX IF NOT EXISTS idx_favorites_added_at ON favorites(added_at);
+CREATE INDEX IF NOT EXISTS idx_favorites_filename ON favorites(filename);
+CREATE INDEX IF NOT EXISTS idx_report_history_created_at ON report_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_report_history_question ON report_history(question);

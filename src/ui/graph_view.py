@@ -14,6 +14,60 @@ def render_graph(edges: pd.DataFrame) -> bool:
     try:
         network = Network(height="560px", width="100%", directed=True)
         network.barnes_hut()
+        network.set_options(
+            """
+            {
+              "nodes": {
+                "shape": "dot",
+                "size": 18,
+                "font": {
+                  "size": 18,
+                  "face": "Arial",
+                  "color": "#222222",
+                  "strokeWidth": 4,
+                  "strokeColor": "#ffffff",
+                  "multi": "html"
+                },
+                "borderWidth": 2
+              },
+              "edges": {
+                "arrows": {
+                  "to": {
+                    "enabled": true,
+                    "scaleFactor": 0.7
+                  }
+                },
+                "font": {
+                  "size": 13,
+                  "align": "middle",
+                  "color": "#555555",
+                  "strokeWidth": 3,
+                  "strokeColor": "#ffffff"
+                },
+                "smooth": {
+                  "type": "dynamic"
+                }
+              },
+              "physics": {
+                "barnesHut": {
+                  "gravitationalConstant": -26000,
+                  "centralGravity": 0.25,
+                  "springLength": 160,
+                  "springConstant": 0.04,
+                  "damping": 0.12
+                },
+                "minVelocity": 0.75
+              },
+              "interaction": {
+                "hover": true,
+                "tooltipDelay": 120,
+                "hideEdgesOnDrag": false,
+                "navigationButtons": true,
+                "keyboard": true
+              }
+            }
+            """
+        )
 
         for edge in edges.to_dict("records"):
             source_id = str(edge["source_node_id"])
@@ -43,6 +97,11 @@ def render_graph(edges: pd.DataFrame) -> bool:
 
         html = network.generate_html()
         components.html(html, height=590, scrolling=True)
+        st.caption(
+            "Управление картой: перетаскивайте узлы мышью, колесом меняйте масштаб, "
+            "зажмите и тяните фон для перемещения карты, наведите курсор на узел или "
+            "связь для подробностей."
+        )
         return True
     except Exception as exc:
         st.warning(f"Граф не удалось построить, показываю таблицу edges: {exc}")

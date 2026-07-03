@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -46,6 +46,13 @@ class Settings:
     processed_data_dir: Path
     chroma_path: Path
     sqlite_path: Path
+    source_path: str = ""
+    max_upload_size_mb: int = 200
+    max_report_history: int = 200
+    supported_extensions: list[str] = field(
+        default_factory=lambda: [".pdf", ".docx"]
+    )
+    show_admin_debug: bool = False
 
     @property
     def yandex_credentials_configured(self) -> bool:
@@ -77,6 +84,19 @@ def _get_bool(name: str, default: bool) -> bool:
     if raw_value is None:
         return default
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_extensions(name: str, default: str) -> list[str]:
+    raw_value = os.getenv(name, default)
+    extensions: list[str] = []
+    for item in raw_value.split(","):
+        extension = item.strip().lower()
+        if not extension:
+            continue
+        if not extension.startswith("."):
+            extension = f".{extension}"
+        extensions.append(extension)
+    return extensions
 
 
 def _build_yandex_generation_uri(folder_id: str, model: str) -> str:
@@ -137,6 +157,11 @@ def get_settings() -> Settings:
         mock_embedding_dim=_get_int("MOCK_EMBEDDING_DIM", 384),
         demo_max_documents=_get_int("DEMO_MAX_DOCUMENTS", 5),
         demo_max_chunks=_get_int("DEMO_MAX_CHUNKS", 30),
+        source_path=os.getenv("SOURCE_PATH", "").strip(),
+        max_upload_size_mb=_get_int("MAX_UPLOAD_SIZE_MB", 200),
+        max_report_history=_get_int("MAX_REPORT_HISTORY", 200),
+        supported_extensions=_get_extensions("SUPPORTED_EXTENSIONS", ".pdf,.docx"),
+        show_admin_debug=_get_bool("SHOW_ADMIN_DEBUG", False),
         raw_data_dir=BASE_DIR / "data" / "raw",
         processed_data_dir=BASE_DIR / "data" / "processed",
         chroma_path=BASE_DIR / "chroma_db",

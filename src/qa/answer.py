@@ -10,6 +10,8 @@ from src.indexing.vector_store import SearchResult, VectorStore
 from src.llm.factory import create_llm_client
 from src.llm.prompts import ANSWER_SYSTEM_PROMPT, ANSWER_USER_PROMPT_TEMPLATE
 from src.qa.query_parser import ParsedQuery, parse_query
+from src.reports.markdown_report import build_answer_markdown_report
+from src.utils.sanitize import safe_float_or_none, safe_int_or_none
 
 
 NO_DATA_MESSAGE = "В предоставленных источниках не найдено достаточно данных"
@@ -18,7 +20,7 @@ NO_DATA_MESSAGE = "В предоставленных источниках не �
 @dataclass(frozen=True)
 class AnswerResult:
     answer: str
-    sources: list[str]
+    sources: list[dict[str, Any]]
     fragments: list[SearchResult]
     facts: list[dict[str, Any]]
     parsed_query: ParsedQuery
@@ -30,64 +32,13 @@ def format_answer_markdown(
     timestamp: datetime | None = None,
 ) -> str:
     timestamp = timestamp or datetime.now()
-    lines = [
-        "# Ответ KnowMine",
-        "",
-        f"**Timestamp:** {timestamp.isoformat(timespec='minutes')}",
-        "",
-        "## Вопрос",
-        "",
-        question.strip(),
-        "",
-        "## Ответ",
-        "",
-        result.answer.strip(),
-        "",
-        "## Источники",
-        "",
-    ]
-
-    if result.sources:
-        lines.extend(f"- {source}" for source in result.sources)
-    else:
-        lines.append("- Источники не найдены.")
-
-    lines.extend(["", "## Найденные факты", ""])
-    if result.facts:
-        for index, fact in enumerate(result.facts, start=1):
-            fields = {
-                key: value
-                for key, value in fact.items()
-                if value not in (None, "")
-            }
-            lines.append(f"{index}. `{fields}`")
-    else:
-        lines.append("Факты не найдены.")
-
-    lines.extend(["", "## Найденные фрагменты", ""])
-    if result.fragments:
-        for index, fragment in enumerate(result.fragments, start=1):
-            source = _format_fragment_source(fragment)
-            distance = (
-                f", distance={fragment.distance:.4f}"
-                if fragment.distance is not None
-                else ""
-            )
-            lines.extend(
-                [
-                    f"### {index}. {source}{distance}",
-                    "",
-                    f"`chunk_id={fragment.chunk_id}`  ",
-                    f"`document_id={fragment.document_id}`",
-                    "",
-                    fragment.text.strip(),
-                    "",
-                ]
-            )
-    else:
-        lines.append("Фрагменты не найдены.")
-
-    return "\n".join(lines).strip() + "\n"
+    return build_answer_markdown_report(
+        question=question,
+        answer=result.answer,
+        sources=result.sources,
+        facts=result.facts,
+        generated_at=timestamp,
+    )
 
 
 def answer_question(
@@ -141,9 +92,10 @@ def answer_question(
         operation="answer",
     ).strip()
 
+    structured_sources = _build_source_dicts(fragments, repository)
     return AnswerResult(
         answer=answer or NO_DATA_MESSAGE,
-        sources=_format_sources(fragments),
+        sources=structured_sources,
         fragments=fragments,
         facts=facts,
         parsed_query=parsed_query,
@@ -182,7 +134,8 @@ def _fact_matches_hints(fact: dict[str, Any], parsed_query: ParsedQuery) -> bool
     if parsed_query.year_from is not None or parsed_query.year_to is not None:
         year = fact.get("year")
         if year is not None:
-            year = int(year)
+            year = safe_int_or_none(year)
+        if year is not None:
             if parsed_query.year_from is not None and year < parsed_query.year_from:
                 return False
             if parsed_query.year_to is not None and year > parsed_query.year_to:
@@ -222,20 +175,42 @@ def _format_query_hints(parsed_query: ParsedQuery) -> str:
     return str(hints)
 
 
-def _format_sources(fragments: list[SearchResult]) -> list[str]:
-    sources: list[str] = []
+def _build_source_dicts(
+    fragments: list[SearchResult],
+    repository: GraphRepository,
+) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
     seen: set[str] = set()
     for fragment in fragments:
-        source = _format_fragment_source(fragment)
-        if source not in seen:
+        metadata = repository.get_document_metadata(fragment.document_id) or {}
+        source = {
+            "chunk_id": fragment.chunk_id,
+            "document_id": fragment.document_id,
+            "filename": fragment.filename or metadata.get("filename"),
+            "source_path": fragment.source_path or metadata.get("path") or metadata.get("source_path"),
+            "page_start": safe_int_or_none(fragment.page_start),
+            "page_end": safe_int_or_none(fragment.page_end),
+            "distance": safe_float_or_none(fragment.distance),
+            "snippet": fragment.text[:1000],
+            "title": metadata.get("title"),
+            "document_created_at": metadata.get("created_at"),
+            "processed_at": metadata.get("processed_at"),
+            "article_date": metadata.get("article_date"),
+            "publication_date": metadata.get("publication_date"),
+            "review_date": metadata.get("review_date"),
+        }
+        key = str(source.get("chunk_id") or source)
+        if key not in seen:
             sources.append(source)
-            seen.add(source)
+            seen.add(key)
     return sources
 
 
 def _format_fragment_source(fragment: SearchResult) -> str:
-    if fragment.page_start is None:
-        return fragment.filename
-    if fragment.page_end and fragment.page_end != fragment.page_start:
-        return f"{fragment.filename}, стр. {fragment.page_start}-{fragment.page_end}"
-    return f"{fragment.filename}, стр. {fragment.page_start}"
+    page_start = safe_int_or_none(fragment.page_start)
+    page_end = safe_int_or_none(fragment.page_end)
+    if page_start is None:
+        return f"{fragment.filename}, страница не указана"
+    if page_end is not None and page_end != page_start:
+        return f"{fragment.filename}, стр. {page_start}-{page_end}"
+    return f"{fragment.filename}, стр. {page_start}"

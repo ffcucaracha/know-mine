@@ -93,5 +93,5 @@ def test_repository_init_db(tmp_path: Path) -> None:
     documents = repository.list_documents()
     facts = repository.list_facts()
 
-    assert documents.empty
+    assert documents == []
     assert facts.empty

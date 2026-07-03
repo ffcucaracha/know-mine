@@ -32,6 +32,8 @@ class DocumentText:
     title: str | None
     text: str
     pages: list[PageText]
+    file_hash: str | None = None
+    text_hash: str | None = None
 
 
 def is_supported_document(path: Path) -> bool:

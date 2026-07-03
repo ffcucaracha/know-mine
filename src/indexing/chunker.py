@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.loaders.file_router import DocumentText
-from src.utils.hashing import sha256_parts
+from src.utils.hashing import sha256_parts, sha256_text
 
 
 MIN_CHUNK_LENGTH = 300
@@ -18,6 +18,7 @@ class Chunk:
     text: str
     page_start: int | None
     page_end: int | None
+    chunk_hash: str
 
 
 @dataclass(frozen=True)
@@ -219,6 +220,7 @@ def _make_chunk(
         text=text,
         page_start=page_start,
         page_end=page_end,
+        chunk_hash=sha256_text(text),
     )
 
 
