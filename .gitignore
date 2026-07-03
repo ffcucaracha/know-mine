@@ -1,0 +1,12 @@
+.env
+data/raw/
+data/processed/
+*.sqlite
+*.sqlite3
+chroma_db/
+__pycache__/
+*.py[cod]
+.streamlit/secrets.toml
+.venv/
+venv/
+
