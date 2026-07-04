@@ -270,6 +270,8 @@ def _favorite_id_for_source(source: dict[str, object]) -> str:
     page_end = source.get("page_end")
     if document_id and (page_start is not None or page_end is not None):
         return f"doc:{document_id}:{page_start or ''}:{page_end or ''}"
+    if document_id:
+        return f"doc:{document_id}"
 
     return "source:" + sha256_parts(
         source.get("filename") or "",
@@ -312,6 +314,95 @@ def _format_source_line(source: dict[str, object]) -> str:
     return f"{filename}, {page_range}" if page_range else filename
 
 
+def _source_group_key(source: dict[str, object]) -> str:
+    document_id = str(source.get("document_id") or "").strip()
+    if document_id:
+        return f"doc:{document_id}"
+    source_path = str(source.get("source_path") or source.get("path") or "").strip()
+    if source_path:
+        return f"path:{source_path}"
+    filename = str(source.get("filename") or "").strip()
+    if filename:
+        return f"file:{filename}"
+    return "source:" + sha256_parts(source.get("snippet") or "")
+
+
+def _source_page_values(source: dict[str, object]) -> list[int]:
+    page_start = safe_int_or_none(source.get("page_start"))
+    page_end = safe_int_or_none(source.get("page_end"))
+    if page_start is None:
+        return []
+    if page_end is not None and page_end != page_start:
+        return list(range(page_start, page_end + 1))
+    return [page_start]
+
+
+def _format_source_pages(pages: list[int]) -> str:
+    if not pages:
+        return "страница не указана"
+    return ", ".join(str(page) for page in sorted(set(pages)))
+
+
+def _group_answer_sources(
+    sources: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    groups: dict[str, dict[str, object]] = {}
+    for raw_source in sources:
+        source = sanitize_source_metadata(raw_source)
+        key = _source_group_key(source)
+        group = groups.setdefault(
+            key,
+            {
+                "chunk_id": "",
+                "document_id": source.get("document_id"),
+                "filename": source.get("filename") or "Источник",
+                "source_path": source.get("source_path") or source.get("path"),
+                "page_start": None,
+                "page_end": None,
+                "distance": source.get("distance") or source.get("score"),
+                "pages": [],
+                "snippets": [],
+                "chunk_ids": [],
+            },
+        )
+
+        pages = group.setdefault("pages", [])
+        if isinstance(pages, list):
+            pages.extend(_source_page_values(source))
+
+        chunk_id = str(source.get("chunk_id") or "").strip()
+        chunk_ids = group.setdefault("chunk_ids", [])
+        if chunk_id and isinstance(chunk_ids, list) and chunk_id not in chunk_ids:
+            chunk_ids.append(chunk_id)
+
+        snippet = str(source.get("snippet") or "").strip()
+        snippets = group.setdefault("snippets", [])
+        if snippet and isinstance(snippets, list) and snippet not in snippets:
+            snippets.append(snippet)
+
+        current_distance = safe_float_or_none(group.get("distance"))
+        source_distance = safe_float_or_none(source.get("distance") or source.get("score"))
+        if current_distance is None or (
+            source_distance is not None and source_distance < current_distance
+        ):
+            group["distance"] = source_distance
+
+    result: list[dict[str, object]] = []
+    for group in groups.values():
+        pages = group.get("pages")
+        if isinstance(pages, list):
+            unique_pages = sorted({page for page in pages if isinstance(page, int)})
+            group["pages"] = unique_pages
+            if unique_pages:
+                group["page_start"] = unique_pages[0]
+                group["page_end"] = unique_pages[-1]
+        snippets = group.get("snippets")
+        if isinstance(snippets, list):
+            group["snippet"] = "\n\n".join(str(snippet) for snippet in snippets[:3])[:1000]
+        result.append(group)
+    return result
+
+
 def _source_document_uri(source: dict[str, object]) -> str | None:
     raw_path = str(source.get("source_path") or source.get("path") or "").strip()
     if not raw_path:
@@ -347,9 +438,17 @@ def _render_answer_sources(
     sources: list[dict[str, object]],
 ) -> None:
     st.markdown("**Источники:**")
-    for index, raw_source in enumerate(sources, start=1):
+    grouped_sources = _group_answer_sources(sources)
+    for index, raw_source in enumerate(grouped_sources, start=1):
         source = sanitize_source_metadata(raw_source)
-        title = _format_source_line(source)
+        filename = str(source.get("filename") or "Источник")
+        pages = source.get("pages") if isinstance(source.get("pages"), list) else []
+        pages_label = _format_source_pages(pages)
+        title = (
+            f"{filename}, стр. {pages_label}"
+            if pages
+            else f"{filename}, {pages_label}"
+        )
         favorite = _favorite_from_source(source)
         favorite_id = str(favorite["favorite_id"])
         should_expand = (
@@ -361,8 +460,7 @@ def _render_answer_sources(
             if source_path:
                 st.caption(f"Документ: {source_path}")
 
-            page_range = _format_page_range(source)
-            st.write(f"Страницы: {page_range}")
+            st.write(f"Страницы: {pages_label}")
 
             feedback_id = st.session_state.get("answer_source_favorite_feedback_id")
             feedback = st.session_state.get("answer_source_favorite_feedback")
@@ -386,13 +484,22 @@ def _render_answer_sources(
             ):
                 pass
 
-            snippet = str(source.get("snippet") or "").strip()
-            if snippet:
-                st.markdown("**Найденный фрагмент**")
-                st.text(snippet[:1000])
+            snippets = source.get("snippets")
+            if isinstance(snippets, list) and snippets:
+                st.markdown("**Найденные фрагменты**")
+                for snippet_index, snippet in enumerate(snippets[:3], start=1):
+                    snippet_text = str(snippet).strip()
+                    if snippet_text:
+                        st.caption(f"Фрагмент {snippet_index}")
+                        st.text(snippet_text[:1000])
+                if len(snippets) > 3:
+                    st.caption(f"Еще фрагментов: {len(snippets) - 3}")
 
             preview = repository.get_document_preview_text(document_id, limit=1000)
-            if preview and preview.strip() and preview.strip() != snippet.strip():
+            snippet_texts = []
+            if isinstance(snippets, list):
+                snippet_texts = [str(snippet).strip() for snippet in snippets]
+            if preview and preview.strip() and preview.strip() not in snippet_texts:
                 st.markdown("**Предпросмотр документа**")
                 st.text(preview[:1000])
 
@@ -1609,10 +1716,10 @@ def main() -> None:
 
     with question_tab:
         st.subheader("Вопрос по источникам")
-        example_question = st.selectbox(
-            "Примеры вопросов",
-            options=EXAMPLE_QUESTIONS,
-        )
+        with st.expander("Примеры вопросов", expanded=False):
+            for example_question in EXAMPLE_QUESTIONS:
+                st.markdown(f"- {example_question}")
+            st.caption("Скопируйте подходящий пример и вставьте его в поле вопроса.")
         question = st.text_area(
             "Введите вопрос",
             placeholder="Какие факты известны о ...?",
@@ -1621,7 +1728,7 @@ def main() -> None:
         top_k = st.slider("Количество фрагментов", min_value=1, max_value=20, value=8)
 
         if st.button("Ответить"):
-            effective_question = question.strip() or example_question
+            effective_question = question.strip()
             if not effective_question.strip():
                 st.warning("Введите вопрос.")
             else:
