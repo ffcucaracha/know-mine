@@ -152,9 +152,9 @@ class YandexAIClient(LLMClient):
 
     def _validate_settings(self) -> None:
         if not self.settings.yandex_api_key:
-            raise ValueError("YANDEX_API_KEY is missing. Set it in .env or use LLM_PROVIDER=mock.")
+            raise ValueError("YANDEX_API_KEY is missing. Set it in .env or use route provider=mock.")
         if not self.settings.yandex_folder_id:
-            raise ValueError("YANDEX_FOLDER_ID is missing. Set it in .env or use LLM_PROVIDER=mock.")
+            raise ValueError("YANDEX_FOLDER_ID is missing. Set it in .env or use route provider=mock.")
         if not self.settings.yandex_generation_model_uri:
             raise ValueError("Yandex generation model URI is empty.")
         if not self.settings.yandex_embedding_model_uri:

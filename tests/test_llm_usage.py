@@ -18,7 +18,6 @@ from src.llm.usage import (
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
-        llm_provider="mock",
         yandex_api_key="",
         yandex_folder_id="",
         yandex_generation_model="yandexgpt-lite",
@@ -51,6 +50,9 @@ def _settings(tmp_path: Path) -> Settings:
         processed_data_dir=tmp_path / "processed",
         chroma_path=tmp_path / "chroma",
         sqlite_path=tmp_path / "usage.sqlite",
+        answer_llm_provider="mock",
+        extraction_llm_provider="mock",
+        embedding_llm_provider="mock",
     )
 
 

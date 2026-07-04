@@ -22,7 +22,6 @@ class FakeResponse:
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
-        llm_provider="ollama",
         yandex_api_key="",
         yandex_folder_id="",
         yandex_generation_model="yandexgpt-lite",
@@ -55,6 +54,9 @@ def _settings(tmp_path: Path) -> Settings:
         processed_data_dir=tmp_path / "processed",
         chroma_path=tmp_path / "chroma",
         sqlite_path=tmp_path / "test.sqlite",
+        answer_llm_provider="ollama",
+        extraction_llm_provider="ollama",
+        embedding_llm_provider="ollama",
     )
 
 

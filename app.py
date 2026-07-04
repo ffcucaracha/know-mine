@@ -44,6 +44,10 @@ EXAMPLE_QUESTIONS = [
     "Какие эксперименты связаны с никелем?",
     "Какие процессы имеют числовые параметры температуры или концентрации?",
     "Что известно о распределении Au, Ag и МПГ между штейном и шлаком?",
+    "Какие методы обессоливания воды подходят для обогатительной фабрики, если исходная вода содержит сульфаты, хлориды, Ca, Mg, Na по 200–300 мг/л, а требуемый сухой остаток — ≤1000 мг/дм3?",
+    "Какие технические решения организации циркуляции католита при электроэкстракции никеля описаны в мировой практике, и какая скорость потока считается оптимальной?",
+    "Покажите все эксперименты и публикации по распределению Au, Ag и МПГ между медным/никелевым штейном и шлаком за последние 5 лет",
+    "Какие способы закачки шахтных вод в глубокие горизонты применялись в России и за рубежом, и каковы их технико-экономические показатели?"
 ]
 
 
@@ -93,7 +97,14 @@ def _render_documents_overview(documents: list[DocumentInfo], settings: Settings
         )
 
     st.dataframe(
-        pd.DataFrame([document.__dict__ for document in documents[:100]]),
+        pd.DataFrame([document.__dict__ for document in documents[:100]]).rename(
+            columns={
+                "path": "Путь",
+                "filename": "Файл",
+                "extension": "Расширение",
+                "size_bytes": "Размер, байт",
+            }
+        ),
         use_container_width=True,
     )
     if len(documents) > 100:
@@ -127,13 +138,13 @@ def _document_table_row(document: dict[str, object]) -> dict[str, object]:
     source_path = document.get("source_path") or document.get("path") or ""
     timestamp = document.get("processed_at") or document.get("created_at") or ""
     return {
-        "filename": document.get("filename", ""),
-        "doc_type": document.get("doc_type", ""),
-        "parse_status": _document_status(document),
-        "text_length": document.get("text_length", ""),
-        "source_path/path": source_path,
-        "short file_hash": _short_hash_value(document.get("file_hash")),
-        "processed_at/created_at": timestamp,
+        "Файл": document.get("filename", ""),
+        "Тип": document.get("doc_type", ""),
+        "Статус": _document_status(document),
+        "Длина текста": document.get("text_length", ""),
+        "Путь": source_path,
+        "file_hash": _short_hash_value(document.get("file_hash")),
+        "Дата обработки": timestamp,
     }
 
 
@@ -174,12 +185,23 @@ def _render_loaded_documents_section(settings: Settings) -> None:
         options=["all", "pdf", "docx"],
         index=0,
         key="documents_type_filter",
+        format_func=lambda value: {
+            "all": "Все",
+            "pdf": "PDF",
+            "docx": "DOCX",
+        }.get(str(value), str(value)),
     )
     status_filter = st.selectbox(
         "Статус",
         options=["all", "success", "error", "pending"],
         index=0,
         key="documents_status_filter",
+        format_func=lambda value: {
+            "all": "Все",
+            "success": "Успешно",
+            "error": "С ошибками",
+            "pending": "В ожидании",
+        }.get(str(value), str(value)),
     )
 
     filtered_documents = documents
@@ -217,14 +239,14 @@ def _render_loaded_documents_section(settings: Settings) -> None:
         return
 
     selected_label = st.selectbox(
-        "Документ для preview",
+        "Документ для просмотра",
         options=list(document_options.keys()),
         key="documents_preview_select",
     )
     selected_document = document_options[selected_label]
-    with st.expander("Preview документа", expanded=False):
-        st.write(f"filename: {selected_document.get('filename', '')}")
-        st.write(f"path: {selected_document.get('path') or selected_document.get('source_path') or ''}")
+    with st.expander("Просмотр документа", expanded=False):
+        st.write(f"Файл: {selected_document.get('filename', '')}")
+        st.write(f"Путь: {selected_document.get('path') or selected_document.get('source_path') or ''}")
         st.write(f"file_hash: {selected_document.get('file_hash') or ''}")
         st.write(f"text_hash: {selected_document.get('text_hash') or ''}")
         preview_text = repository.get_document_preview_text(
@@ -234,7 +256,7 @@ def _render_loaded_documents_section(settings: Settings) -> None:
         if preview_text:
             st.text(preview_text)
         else:
-            st.caption("Preview текста недоступен: текст документа не хранится в documents или chunks еще не созданы.")
+            st.caption("Просмотр текста недоступен: текст документа не хранится в базе или чанки ещё не созданы.")
 
 
 def _favorite_id_for_source(source: dict[str, object]) -> str:
@@ -255,22 +277,22 @@ def _favorite_id_for_source(source: dict[str, object]) -> str:
     )
 
 
-def _favorite_from_fragment(fragment: object) -> dict[str, object]:
-    source = sanitize_source_metadata(
+def _favorite_from_source(source: dict[str, object]) -> dict[str, object]:
+    favorite = sanitize_source_metadata(
         {
-            "chunk_id": getattr(fragment, "chunk_id", ""),
-            "document_id": getattr(fragment, "document_id", ""),
-            "filename": getattr(fragment, "filename", ""),
-            "source_path": getattr(fragment, "source_path", ""),
-            "page_start": getattr(fragment, "page_start", None),
-            "page_end": getattr(fragment, "page_end", None),
-            "score": getattr(fragment, "distance", None),
-            "snippet": str(getattr(fragment, "text", "") or "")[:1000],
+            "chunk_id": source.get("chunk_id", ""),
+            "document_id": source.get("document_id", ""),
+            "filename": source.get("filename", ""),
+            "source_path": source.get("source_path") or source.get("path") or "",
+            "page_start": source.get("page_start"),
+            "page_end": source.get("page_end"),
+            "score": source.get("score") or source.get("distance"),
+            "snippet": str(source.get("snippet") or "")[:1000],
             "added_at": datetime.now().isoformat(timespec="seconds"),
         }
     )
-    source["favorite_id"] = _favorite_id_for_source(source)
-    return source
+    favorite["favorite_id"] = _favorite_id_for_source(favorite)
+    return favorite
 
 
 def _format_page_range(favorite: dict[str, object]) -> str:
@@ -290,6 +312,130 @@ def _format_source_line(source: dict[str, object]) -> str:
     return f"{filename}, {page_range}" if page_range else filename
 
 
+def _source_document_uri(source: dict[str, object]) -> str | None:
+    raw_path = str(source.get("source_path") or source.get("path") or "").strip()
+    if not raw_path:
+        return None
+    if raw_path.startswith(("http://", "https://", "file://")):
+        return raw_path
+    try:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        if path.exists():
+            return path.as_uri()
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _add_answer_source_to_favorites(db_path: str, favorite: dict[str, object]) -> None:
+    favorite_id = str(favorite.get("favorite_id") or "")
+    repository = GraphRepository(Path(db_path))
+    inserted = repository.add_favorite(favorite)
+    st.session_state["open_answer_source_favorite_id"] = favorite_id
+    st.session_state["answer_source_favorite_feedback_id"] = favorite_id
+    st.session_state["answer_source_favorite_feedback"] = (
+        "Источник добавлен в избранное."
+        if inserted
+        else "Источник уже был в избранном."
+    )
+
+
+def _render_answer_sources(
+    repository: GraphRepository,
+    sources: list[dict[str, object]],
+) -> None:
+    st.markdown("**Источники:**")
+    for index, raw_source in enumerate(sources, start=1):
+        source = sanitize_source_metadata(raw_source)
+        title = _format_source_line(source)
+        favorite = _favorite_from_source(source)
+        favorite_id = str(favorite["favorite_id"])
+        should_expand = (
+            st.session_state.get("open_answer_source_favorite_id") == favorite_id
+        )
+        with st.expander(f"Источник {index}: {title}", expanded=should_expand):
+            document_id = str(source.get("document_id") or "")
+            source_path = str(source.get("source_path") or source.get("path") or "")
+            if source_path:
+                st.caption(f"Документ: {source_path}")
+
+            page_range = _format_page_range(source)
+            st.write(f"Страницы: {page_range}")
+
+            feedback_id = st.session_state.get("answer_source_favorite_feedback_id")
+            feedback = st.session_state.get("answer_source_favorite_feedback")
+            if feedback_id == favorite_id and feedback:
+                if "добавлен" in str(feedback):
+                    st.success(str(feedback))
+                else:
+                    st.info(str(feedback))
+
+            if repository.is_favorite(favorite_id):
+                st.button(
+                    "★ В избранном",
+                    key=f"source_fav_exists_{favorite_id}",
+                    disabled=True,
+                )
+            elif st.button(
+                "☆ Добавить в избранное",
+                key=f"source_fav_add_{favorite_id}",
+                on_click=_add_answer_source_to_favorites,
+                args=(str(repository.db_path), favorite),
+            ):
+                pass
+
+            snippet = str(source.get("snippet") or "").strip()
+            if snippet:
+                st.markdown("**Найденный фрагмент**")
+                st.text(snippet[:1000])
+
+            preview = repository.get_document_preview_text(document_id, limit=1000)
+            if preview and preview.strip() and preview.strip() != snippet.strip():
+                st.markdown("**Предпросмотр документа**")
+                st.text(preview[:1000])
+
+
+def _render_answer_result(repository: GraphRepository, result: object) -> None:
+    st.markdown(str(getattr(result, "answer", "")))
+
+    sources = getattr(result, "sources", []) or []
+    if sources:
+        _render_answer_sources(repository, sources)
+
+    fragments = getattr(result, "fragments", []) or []
+    with st.expander("Точные фрагменты из поиска", expanded=False):
+        if not fragments:
+            st.info("Фрагменты не найдены.")
+        for index, fragment in enumerate(fragments, start=1):
+            page_start = safe_int_or_none(fragment.page_start)
+            page_end = safe_int_or_none(fragment.page_end)
+            page_part = ", страница не указана"
+            if page_start is not None:
+                page_part = f", стр. {page_start}"
+                if page_end is not None and page_end != page_start:
+                    page_part += f"-{page_end}"
+            distance_value = safe_float_or_none(fragment.distance)
+            distance = (
+                f", distance={distance_value:.4f}"
+                if distance_value is not None
+                else ""
+            )
+            st.markdown(f"**{index}. {fragment.filename}{page_part}{distance}**")
+            st.caption(
+                f"chunk_id={fragment.chunk_id} | document_id={fragment.document_id}"
+            )
+            st.write(fragment.text)
+
+    facts = getattr(result, "facts", []) or []
+    with st.expander("Факты из графа", expanded=False):
+        if facts:
+            _display_pandas_frame(pd.DataFrame(facts), FACT_COLUMN_LABELS)
+        else:
+            st.info("Факты не найдены.")
+
+
 def _render_favorites_tab(repository: GraphRepository) -> None:
     st.subheader("Избранные источники")
     favorites = repository.list_favorites(limit=200)
@@ -299,7 +445,7 @@ def _render_favorites_tab(repository: GraphRepository) -> None:
         st.info("Пока нет избранных источников.")
         return
 
-    search_query = st.text_input("Поиск по filename/snippet", key="favorites_search")
+    search_query = st.text_input("Поиск по файлу или фрагменту", key="favorites_search")
     filtered = favorites
     if search_query.strip():
         query = search_query.strip().lower()
@@ -319,7 +465,7 @@ def _render_favorites_tab(repository: GraphRepository) -> None:
         with st.container(border=True):
             st.markdown(f"**{' | '.join(title_parts)}**")
             st.caption(
-                f"added_at={favorite.get('added_at', '')} | "
+                f"Добавлено: {favorite.get('added_at', '')} | "
                 f"chunk_id={favorite.get('chunk_id') or ''} | "
                 f"document_id={favorite.get('document_id') or ''}"
             )
@@ -411,13 +557,13 @@ def _render_report_history_tab(repository: GraphRepository, settings: Settings) 
     else:
         table_rows = [
             {
-                "created_at": report.get("created_at"),
-                "question": report.get("question"),
-                "answer_preview": report.get("answer_preview"),
-                "actualization_date": report.get("actualization_date") or "не указана",
-                "sources_count": report.get("sources_count", 0),
-                "facts_count": report.get("facts_count", 0),
-                "filename": report.get("filename"),
+                "Дата формирования": report.get("created_at"),
+                "Вопрос": report.get("question"),
+                "Краткий ответ": report.get("answer_preview"),
+                "Дата актуализации": report.get("actualization_date") or "не указана",
+                "Количество источников": report.get("sources_count", 0),
+                "Количество фактов": report.get("facts_count", 0),
+                "Файл": report.get("filename"),
             }
             for report in reports
         ]
@@ -442,7 +588,7 @@ def _render_report_history_tab(repository: GraphRepository, settings: Settings) 
                     key=f"report_prepare_download_{report_id}",
                 ):
                     st.session_state["report_download_id"] = report_id
-                if st.button("Показать preview", key=f"report_preview_{report_id}"):
+                if st.button("Показать просмотр", key=f"report_preview_{report_id}"):
                     st.session_state["report_preview_id"] = report_id
                 if (
                     st.session_state.get("report_download_id") == report_id
@@ -507,11 +653,11 @@ def _collect_metrics(settings: Settings) -> dict[str, int]:
 def _render_metrics(settings: Settings) -> None:
     metrics = _collect_metrics(settings)
     columns = st.columns(5)
-    columns[0].metric("Documents", metrics["documents"])
-    columns[1].metric("Chunks", metrics["chunks"])
-    columns[2].metric("Facts", metrics["facts"])
-    columns[3].metric("Nodes", metrics["nodes"])
-    columns[4].metric("Edges", metrics["edges"])
+    columns[0].metric("Документы", metrics["documents"])
+    columns[1].metric("Чанки", metrics["chunks"])
+    columns[2].metric("Факты", metrics["facts"])
+    columns[3].metric("Узлы", metrics["nodes"])
+    columns[4].metric("Связи", metrics["edges"])
 
 
 def _render_pie_chart(
@@ -555,11 +701,59 @@ def _render_pie_chart(
     )
 
 
+def _display_dataframe(rows: list[dict[str, object]], columns: dict[str, str] | None = None) -> None:
+    dataframe = pd.DataFrame(rows)
+    if columns:
+        dataframe = dataframe.rename(columns=columns)
+    st.dataframe(dataframe, use_container_width=True)
+
+
+def _display_pandas_frame(dataframe: pd.DataFrame, columns: dict[str, str]) -> None:
+    st.dataframe(dataframe.rename(columns=columns), use_container_width=True)
+
+
+FACT_COLUMN_LABELS = {
+    "id": "ID",
+    "document_id": "ID документа",
+    "chunk_id": "ID чанка",
+    "statement": "Утверждение",
+    "material": "Материал",
+    "process": "Процесс",
+    "equipment": "Оборудование",
+    "property": "Свойство",
+    "condition_text": "Условие",
+    "numeric_value": "Число",
+    "numeric_unit": "Единица",
+    "geography": "География",
+    "year": "Год",
+    "confidence": "Уверенность",
+}
+
+EDGE_COLUMN_LABELS = {
+    "source_label": "Источник",
+    "source_type": "Тип источника",
+    "relation": "Связь",
+    "target_label": "Цель",
+    "target_type": "Тип цели",
+    "fact_id": "ID факта",
+    "evidence": "Подтверждение",
+}
+
+NODE_COLUMN_LABELS = {
+    "id": "ID",
+    "label": "Название",
+    "type": "Тип",
+    "normalized_label": "Нормализованное название",
+    "canonical_name": "Каноническое название",
+    "degree": "Количество связей",
+}
+
+
 def _render_llm_usage_tab(repository: GraphRepository) -> None:
     st.subheader("Статистика использования LLM")
     st.info(
         "Стоимость является приблизительной, если провайдер не возвращает "
-        "фактический token usage. Коэффициенты стоимости задаются в .env."
+        "фактическое использование токенов. Коэффициенты стоимости задаются в .env."
     )
     summary = repository.get_llm_usage_summary()
     columns = st.columns(6)
@@ -589,8 +783,8 @@ def _render_llm_usage_tab(repository: GraphRepository) -> None:
         _render_pie_chart(
             "Успешность запросов",
             [
-                {"status": "success", "requests": int(summary["successful_requests"])},
-                {"status": "error", "requests": int(summary["failed_requests"])},
+                {"status": "успешно", "requests": int(summary["successful_requests"])},
+                {"status": "ошибка", "requests": int(summary["failed_requests"])},
             ],
             "status",
             "requests",
@@ -613,14 +807,54 @@ def _render_llm_usage_tab(repository: GraphRepository) -> None:
         )
 
     st.markdown("### По операциям")
-    st.dataframe(pd.DataFrame(operation_rows), use_container_width=True)
+    _display_dataframe(
+        operation_rows,
+        {
+            "operation": "Операция",
+            "requests": "Запросов",
+            "successful_requests": "Успешных",
+            "failed_requests": "Ошибок",
+            "display_total_tokens": "Всего токенов",
+            "estimated_cost": "Примерная стоимость",
+            "avg_latency_ms": "Средняя задержка, мс",
+        },
+    )
 
     st.markdown("### По провайдерам")
-    st.dataframe(pd.DataFrame(provider_rows), use_container_width=True)
+    _display_dataframe(
+        provider_rows,
+        {
+            "provider": "Провайдер",
+            "model": "Модель",
+            "requests": "Запросов",
+            "successful_requests": "Успешных",
+            "failed_requests": "Ошибок",
+            "display_total_tokens": "Всего токенов",
+            "estimated_cost": "Примерная стоимость",
+            "avg_latency_ms": "Средняя задержка, мс",
+        },
+    )
 
     st.markdown("### Последние события")
     event_rows = repository.list_llm_usage_events(limit=200)
-    st.dataframe(pd.DataFrame(event_rows), use_container_width=True)
+    _display_dataframe(
+        event_rows,
+        {
+            "created_at": "Создано",
+            "provider": "Провайдер",
+            "model": "Модель",
+            "operation": "Операция",
+            "request_chars": "Символов запроса",
+            "response_chars": "Символов ответа",
+            "total_tokens": "Токенов",
+            "estimated_total_tokens": "Примерно токенов",
+            "estimated_cost": "Примерная стоимость",
+            "latency_ms": "Задержка, мс",
+            "success": "Успешно",
+            "error_type": "Тип ошибки",
+            "error_message": "Ошибка",
+        },
+    )
 
     st.markdown("### Сброс")
     confirm_reset = st.checkbox("Я понимаю, что статистика будет удалена")
@@ -685,14 +919,18 @@ def _extract_facts_and_relations(settings: Settings, repository: GraphRepository
         chunks_remaining = max(0, chunks_total - chunks_with_facts)
         chunks_to_process = min(chunks_remaining, settings.demo_max_chunks)
         st.info(
-            f"Всего chunks: {chunks_total}. "
-            f"Chunks с facts: {chunks_with_facts}. "
+            f"Всего чанков: {chunks_total}. "
+            f"Чанков с фактами: {chunks_with_facts}. "
             f"Будет обработано: {chunks_to_process}. "
-            f"Expected LLM requests: {chunks_to_process}. "
-            f"Skipped existing: {chunks_with_facts}."
+            f"Ожидаемых LLM-запросов: {chunks_to_process}. "
+            f"Пропущено существующих: {chunks_with_facts}."
         )
         progress.progress(10)
-        llm_client = create_llm_client(settings, repository=repository)
+        llm_client = create_llm_client(
+            settings,
+            repository=repository,
+            route="extraction",
+        )
         extractor = KnowledgeExtractor(
             llm_client=llm_client,
             repository=repository,
@@ -711,16 +949,16 @@ def _extract_facts_and_relations(settings: Settings, repository: GraphRepository
                 pd.DataFrame(
                     [
                         {
-                            "chunks_total": stats.chunks_total,
-                            "chunks_with_facts": stats.chunks_with_facts,
-                            "chunks_processed": stats.chunks_processed,
-                            "expected_llm_requests": stats.expected_llm_requests,
-                            "skipped_existing": stats.chunks_skipped_existing,
-                            "chunks_succeeded": stats.chunks_succeeded,
-                            "chunks_failed": stats.chunks_failed,
-                            "nodes_created": stats.nodes_created,
-                            "facts_created": stats.facts_created,
-                            "edges_created": stats.edges_created,
+                            "Всего чанков": stats.chunks_total,
+                            "Чанков с фактами": stats.chunks_with_facts,
+                            "Обработано чанков": stats.chunks_processed,
+                            "Ожидаемых LLM-запросов": stats.expected_llm_requests,
+                            "Пропущено существующих": stats.chunks_skipped_existing,
+                            "Успешно": stats.chunks_succeeded,
+                            "Ошибок": stats.chunks_failed,
+                            "Создано узлов": stats.nodes_created,
+                            "Создано фактов": stats.facts_created,
+                            "Создано связей": stats.edges_created,
                         }
                     ]
                 ),
@@ -779,53 +1017,87 @@ def _document_text_from_state(data: dict[str, object]) -> DocumentText:
     )
 
 
-def _generation_model_label(settings: Settings) -> str:
-    if settings.llm_provider == "ollama":
+def _generation_model_label(settings: Settings, route: str = "answer") -> str:
+    provider = settings.provider_for_route(route)
+    if provider == "ollama":
         return settings.ollama_generation_model
-    if settings.llm_provider == "mock":
+    if provider == "mock":
         return "mock"
     return settings.yandex_generation_model
 
 
 def _embedding_model_label(settings: Settings) -> str:
-    if settings.llm_provider == "ollama":
+    provider = settings.provider_for_route("embedding")
+    if provider == "ollama":
         return settings.ollama_embedding_model
-    if settings.llm_provider == "mock":
+    if provider == "mock":
         return f"mock-{settings.mock_embedding_dim}"
     return settings.yandex_embedding_model
 
 
+def _route_model_label(settings: Settings, route: str) -> str:
+    if route == "embedding":
+        return _embedding_model_label(settings)
+    return _generation_model_label(settings, route=route)
+
+
 def _render_model_sidebar(settings: Settings) -> None:
     st.header("Модели")
-    provider = settings.llm_provider
-    st.caption(f"Answer model: {provider} / {_generation_model_label(settings)}")
-    st.caption(f"Extraction model: {provider} / {_generation_model_label(settings)}")
-    st.caption(f"Embedding model: {provider} / {_embedding_model_label(settings)}")
-    st.caption("Storage: ChromaDB + SQLite")
+    answer_provider = settings.provider_for_route("answer")
+    extraction_provider = settings.provider_for_route("extraction")
+    embedding_provider = settings.provider_for_route("embedding")
+    st.caption(
+        f"Модель ответов: {answer_provider} / {_route_model_label(settings, 'answer')}"
+    )
+    st.caption(
+        "Модель извлечения: "
+        f"{extraction_provider} / {_route_model_label(settings, 'extraction')}"
+    )
+    st.caption(
+        f"Модель embeddings: {embedding_provider} / {_route_model_label(settings, 'embedding')}"
+    )
+    st.caption("Хранилище: ChromaDB + SQLite")
 
-    connection_status = "OK"
-    if provider == "yandex" and not settings.yandex_credentials_configured:
-        connection_status = "credentials missing"
+    connection_status = "Готово"
+    if (
+        "yandex" in {answer_provider, extraction_provider, embedding_provider}
+        and not settings.yandex_credentials_configured
+    ):
+        connection_status = "не заданы credentials"
     st.write("Состояние подключения")
     st.caption(connection_status)
 
     if st.button("Проверить модели"):
         repository = GraphRepository(settings.sqlite_path)
-        client = create_llm_client(settings, repository=repository)
-        answer_ok, answer_message = client.healthcheck()
-        extraction_ok, extraction_message = client.healthcheck()
+        answer_client = create_llm_client(
+            settings,
+            repository=repository,
+            route="answer",
+        )
+        extraction_client = create_llm_client(
+            settings,
+            repository=repository,
+            route="extraction",
+        )
+        embedding_client = create_llm_client(
+            settings,
+            repository=repository,
+            route="embedding",
+        )
+        answer_ok, answer_message = answer_client.healthcheck()
+        extraction_ok, extraction_message = extraction_client.healthcheck()
         try:
-            client.embed_texts(["healthcheck"], operation="healthcheck")
+            embedding_client.embed_texts(["healthcheck"], operation="healthcheck")
             embedding_ok = True
-            embedding_message = "Embedding client is available"
+            embedding_message = "Клиент embeddings доступен"
         except Exception as exc:
             embedding_ok = False
             embedding_message = str(exc)
 
         for label, ok, message in (
-            ("answer", answer_ok, answer_message),
-            ("extraction", extraction_ok, extraction_message),
-            ("embedding", embedding_ok, embedding_message),
+            ("Ответы", answer_ok, answer_message),
+            ("Извлечение", extraction_ok, extraction_message),
+            ("Embeddings", embedding_ok, embedding_message),
         ):
             if ok:
                 st.success(f"{label}: OK")
@@ -845,7 +1117,7 @@ def main() -> None:
         if settings.show_admin_debug:
             st.divider()
             with st.expander("Технические детали", expanded=False):
-                st.text_input("DB path", value=str(settings.sqlite_path), disabled=True)
+                st.text_input("Путь к БД", value=str(settings.sqlite_path), disabled=True)
                 st.number_input(
                     "DEMO_MAX_DOCUMENTS",
                     min_value=1,
@@ -858,9 +1130,9 @@ def main() -> None:
                     value=settings.demo_max_chunks,
                     disabled=True,
                 )
-                st.text_input("Generation URI", value=settings.yandex_generation_model_uri, disabled=True)
-                st.text_input("Embedding URI", value=settings.yandex_embedding_model_uri, disabled=True)
-                st.text_input("Chroma path", value=str(settings.chroma_path), disabled=True)
+                st.text_input("URI генерации", value=settings.yandex_generation_model_uri, disabled=True)
+                st.text_input("URI embeddings", value=settings.yandex_embedding_model_uri, disabled=True)
+                st.text_input("Путь ChromaDB", value=str(settings.chroma_path), disabled=True)
                 if st.button("Сбросить индекс и БД"):
                     try:
                         _reset_index_and_db(settings)
@@ -1080,12 +1352,12 @@ def main() -> None:
                         existing_document = repository.get_document_by_file_hash(file_hash)
                         if existing_document:
                             skipped_documents.append(
-                                {
-                                    "filename": document.filename,
-                                    "path": document.path,
-                                    "reason": "уже обработан",
-                                    "document_id": existing_document.get("id"),
-                                }
+                            {
+                                "Файл": document.filename,
+                                "Путь": document.path,
+                                "Причина": "уже обработан",
+                                "document_id": existing_document.get("id"),
+                            }
                             )
                             continue
 
@@ -1111,9 +1383,9 @@ def main() -> None:
                     except Exception as exc:
                         failed_documents.append(
                             {
-                                "filename": document.filename,
-                                "path": document.path,
-                                "error": str(exc),
+                                "Файл": document.filename,
+                                "Путь": document.path,
+                                "Ошибка": str(exc),
                             }
                         )
                     progress.progress(int(index / len(documents_to_process) * 100))
@@ -1125,14 +1397,14 @@ def main() -> None:
                         f"Новых документов обработано: {len(extraction_summaries)}. "
                         f"Сохранено в SQLite: {saved_documents}. "
                         f"Пропущено известных: {len(skipped_documents)}. "
-                        f"Demo limit: {settings.demo_max_documents}."
+                        f"Демо-лимит: {settings.demo_max_documents}."
                     )
                     summary_rows = [
                         {
-                            "filename": summary["filename"],
-                            "doc_type": summary["doc_type"],
-                            "text_length": summary["text_length"],
-                            "pages_count": summary["pages_count"],
+                            "Файл": summary["filename"],
+                            "Тип": summary["doc_type"],
+                            "Длина текста": summary["text_length"],
+                            "Страниц": summary["pages_count"],
                         }
                         for summary in extraction_summaries
                     ]
@@ -1204,9 +1476,9 @@ def main() -> None:
                     except Exception as exc:
                         failed_chunks.append(
                             {
-                                "filename": document.filename,
-                                "path": document.path,
-                                "error": str(exc),
+                                "Файл": document.filename,
+                                "Путь": document.path,
+                                "Ошибка": str(exc),
                             }
                         )
                     progress.progress(int(index / len(documents_to_chunk) * 100))
@@ -1220,11 +1492,11 @@ def main() -> None:
                         pd.DataFrame(
                             [
                                 {
-                                    "documents": len(documents_to_chunk),
-                                    "new_chunks": len(all_chunks),
-                                    "duplicate_chunks_skipped": skipped_duplicate_chunks,
-                                    "chunk_candidates": chunks_total_candidates,
-                                    "average_chunk_length": round(average_length, 1),
+                                    "Документов": len(documents_to_chunk),
+                                    "Новых чанков": len(all_chunks),
+                                    "Пропущено дублей": skipped_duplicate_chunks,
+                                    "Кандидатов в чанки": chunks_total_candidates,
+                                    "Средняя длина чанка": round(average_length, 1),
                                 }
                             ]
                         ),
@@ -1234,7 +1506,7 @@ def main() -> None:
                 elif chunks_total_candidates:
                     st.info(
                         "Новых чанков не создано. "
-                        f"Пропущено duplicate chunks: {skipped_duplicate_chunks}."
+                        f"Пропущено дублей чанков: {skipped_duplicate_chunks}."
                     )
 
                 if failed_chunks:
@@ -1244,7 +1516,7 @@ def main() -> None:
         st.divider()
         st.subheader("Векторный индекс")
         provider_embedding_limit = settings.embedding_max_chars
-        if settings.llm_provider == "ollama":
+        if settings.provider_for_route("embedding") == "ollama":
             provider_embedding_limit = min(
                 settings.embedding_max_chars,
                 settings.ollama_embedding_max_chars,
@@ -1259,7 +1531,7 @@ def main() -> None:
                 try:
                     _reset_chunks_and_index(settings)
                     st.success(
-                        "Чанки, факты, nodes, edges и ChromaDB index сброшены. "
+                        "Чанки, факты, узлы, связи и индекс ChromaDB сброшены. "
                         "Документы сохранены."
                     )
                 except Exception as exc:
@@ -1294,17 +1566,21 @@ def main() -> None:
                 elif not chunks:
                     st.info(
                         "Новых чанков для индексации нет. "
-                        f"Всего chunks: {total_chunks}, уже в индексе: {already_indexed}."
+                        f"Всего чанков: {total_chunks}, уже в индексе: {already_indexed}."
                     )
                 else:
                     st.info(
-                        f"Всего chunks: {total_chunks}. "
+                        f"Всего чанков: {total_chunks}. "
                         f"Уже в индексе: {already_indexed}. "
                         f"Будет проиндексировано: {len(chunks)}. "
                         f"Пропущено: {already_indexed}."
                     )
                     texts = [str(chunk["text"]) for chunk in chunks]
-                    client = create_llm_client(settings, repository=repository)
+                    client = create_llm_client(
+                        settings,
+                        repository=repository,
+                        route="embedding",
+                    )
                     progress.progress(35)
                     batch_size = max(1, settings.embedding_batch_size)
                     embeddings = []
@@ -1322,12 +1598,12 @@ def main() -> None:
                     st.success(
                         f"Векторный индекс обновлен. Новых чанков: {len(chunks)}. "
                         f"Уже было в индексе: {already_indexed}. "
-                        f"Demo limit: {settings.demo_max_chunks}."
+                        f"Демо-лимит: {settings.demo_max_chunks}."
                     )
             except Exception as exc:
                 st.error(
                     "Не удалось построить векторный индекс. "
-                    "Некорректные metadata чанка. Проверьте page_start/page_end. "
+                    "Некорректные метаданные чанка. Проверьте page_start/page_end. "
                     f"Детали: {exc}"
                 )
 
@@ -1342,7 +1618,7 @@ def main() -> None:
             placeholder="Какие факты известны о ...?",
             key="question_text",
         )
-        top_k = st.slider("Top-K фрагментов", min_value=1, max_value=20, value=8)
+        top_k = st.slider("Количество фрагментов", min_value=1, max_value=20, value=8)
 
         if st.button("Ответить"):
             effective_question = question.strip() or example_question
@@ -1359,62 +1635,7 @@ def main() -> None:
                     )
                     st.session_state["last_answer_question"] = effective_question
                     st.session_state["last_answer_result"] = result
-                    st.markdown(result.answer)
                     _save_current_report_once(repository, effective_question, result)
-
-                    if result.sources:
-                        st.markdown("**Источники:**")
-                        for source in result.sources:
-                            st.write(f"- {_format_source_line(source)}")
-
-                    with st.expander("Найденные фрагменты", expanded=False):
-                        if not result.fragments:
-                            st.info("Фрагменты не найдены.")
-                        for index, fragment in enumerate(result.fragments, start=1):
-                            page_start = safe_int_or_none(fragment.page_start)
-                            page_end = safe_int_or_none(fragment.page_end)
-                            page_part = ", страница не указана"
-                            if page_start is not None:
-                                page_part = f", стр. {page_start}"
-                                if page_end is not None and page_end != page_start:
-                                    page_part += f"-{page_end}"
-                            distance_value = safe_float_or_none(fragment.distance)
-                            distance = (
-                                f", distance={distance_value:.4f}"
-                                if distance_value is not None
-                                else ""
-                            )
-                            st.markdown(
-                                f"**{index}. {fragment.filename}{page_part}{distance}**"
-                            )
-                            st.caption(
-                                f"chunk_id={fragment.chunk_id} | document_id={fragment.document_id}"
-                            )
-                            st.write(fragment.text)
-                            favorite = _favorite_from_fragment(fragment)
-                            favorite_id = str(favorite["favorite_id"])
-                            if repository.is_favorite(favorite_id):
-                                st.button(
-                                    "★ В избранном",
-                                    key=f"fav_exists_{favorite_id}",
-                                    disabled=True,
-                                )
-                            elif st.button(
-                                "☆ Добавить в избранное",
-                                key=f"fav_add_{favorite_id}",
-                            ):
-                                inserted = repository.add_favorite(favorite)
-                                if inserted:
-                                    st.toast("Источник добавлен в избранное")
-                                else:
-                                    st.toast("Источник уже был в избранном")
-                                st.rerun()
-
-                    with st.expander("Факты из графа", expanded=False):
-                        if result.facts:
-                            st.dataframe(pd.DataFrame(result.facts), use_container_width=True)
-                        else:
-                            st.info("Факты не найдены.")
                 except Exception as exc:
                     st.error(f"Не удалось сформировать ответ: {exc}")
                     with st.expander("Технические детали", expanded=False):
@@ -1423,6 +1644,8 @@ def main() -> None:
         last_answer_result = st.session_state.get("last_answer_result")
         last_answer_question = st.session_state.get("last_answer_question")
         if last_answer_result is not None and last_answer_question:
+            repository = GraphRepository(settings.sqlite_path)
+            _render_answer_result(repository, last_answer_result)
             markdown = str(
                 st.session_state.get("last_report_markdown")
                 or format_answer_markdown(
@@ -1463,8 +1686,8 @@ def main() -> None:
             node_type_counts = repository.count_nodes_by_type()
             edge_type_counts = repository.count_edges_by_type()
             columns = st.columns(2)
-            columns[0].metric("Unknown nodes", node_type_counts.get("Unknown", 0))
-            columns[1].metric("mentions edges", edge_type_counts.get("mentions", 0))
+            columns[0].metric("Узлы Unknown", node_type_counts.get("Unknown", 0))
+            columns[1].metric("Связи mentions", edge_type_counts.get("mentions", 0))
 
         top_nodes = repository.list_top_connected_nodes(limit=6)
         if top_nodes:
@@ -1496,7 +1719,7 @@ def main() -> None:
                 st.session_state["graph_search_done"] = True
 
         graph_nodes = st.session_state.get("graph_nodes", [])
-        st.markdown("**Найденные nodes**")
+        st.markdown("**Найденные узлы**")
         if not graph_nodes:
             if st.session_state.get("graph_search_done"):
                 st.info("Сущности не найдены.")
@@ -1518,14 +1741,14 @@ def main() -> None:
                 deduped_graph_nodes.append(row)
 
             nodes_df = pd.DataFrame(deduped_graph_nodes)
-            with st.expander("Найденные nodes", expanded=False):
-                st.dataframe(nodes_df, use_container_width=True)
+            with st.expander("Найденные узлы", expanded=False):
+                _display_pandas_frame(nodes_df, NODE_COLUMN_LABELS)
             node_options = {
                 f"{row['label']} ({row['type']})": row["id"]
                 for row in deduped_graph_nodes
             }
             selected_label = st.selectbox(
-                "Выберите node для графа",
+                "Выберите узел для графа",
                 options=list(node_options.keys()),
             )
             edges = repository.get_edges_for_node(
@@ -1534,7 +1757,7 @@ def main() -> None:
             )
             graph_rendered = render_graph(edges)
             if not graph_rendered and not edges.empty:
-                st.dataframe(edges, use_container_width=True)
+                _display_pandas_frame(edges, EDGE_COLUMN_LABELS)
 
     with facts_tab:
         st.subheader("Факты")
@@ -1542,10 +1765,10 @@ def main() -> None:
         repository = GraphRepository(settings.sqlite_path)
         st.caption(
             f"DEMO_MAX_CHUNKS={settings.demo_max_chunks}. "
-            "Лимит применяется к новым chunks без facts."
+            "Лимит применяется к новым чанкам без фактов."
         )
         confirm_extraction = st.checkbox(
-            "Я понимаю, что extraction может вызвать LLM-запросы",
+            "Я понимаю, что извлечение может вызвать LLM-запросы",
             key="confirm_fact_extraction",
         )
         if st.button(
@@ -1555,7 +1778,7 @@ def main() -> None:
         ):
             _extract_facts_and_relations(settings, repository)
         st.divider()
-        st.dataframe(repository.list_facts(), use_container_width=True)
+        _display_pandas_frame(repository.list_facts(), FACT_COLUMN_LABELS)
 
     with usage_tab:
         st.warning("Этот раздел предназначен для администратора базы знаний.")
@@ -1568,71 +1791,96 @@ def main() -> None:
         repository = GraphRepository(settings.sqlite_path)
         metrics = _collect_metrics(settings)
         status_columns = st.columns(2)
-        status_columns[0].metric("SQLite", "connected" if settings.sqlite_path.exists() else "empty")
+        status_columns[0].metric("SQLite", "подключено" if settings.sqlite_path.exists() else "пусто")
         try:
             VectorStore(settings.chroma_path).get_existing_ids()
-            chroma_status = "connected"
+            chroma_status = "подключено"
         except Exception as exc:
-            chroma_status = f"error: {exc}"
+            chroma_status = f"ошибка: {exc}"
         status_columns[1].metric("ChromaDB", chroma_status)
 
-        st.markdown("### Current routing")
+        st.markdown("### Текущая маршрутизация")
         st.dataframe(
             pd.DataFrame(
                 [
                     {
-                        "route": "answer",
-                        "provider": settings.llm_provider,
-                        "model": _generation_model_label(settings),
+                        "Маршрут": "answer",
+                        "Провайдер": settings.provider_for_route("answer"),
+                        "Модель": _route_model_label(settings, "answer"),
                     },
                     {
-                        "route": "extraction",
-                        "provider": settings.llm_provider,
-                        "model": _generation_model_label(settings),
+                        "Маршрут": "extraction",
+                        "Провайдер": settings.provider_for_route("extraction"),
+                        "Модель": _route_model_label(settings, "extraction"),
                     },
                     {
-                        "route": "embedding",
-                        "provider": settings.llm_provider,
-                        "model": _embedding_model_label(settings),
+                        "Маршрут": "embedding",
+                        "Провайдер": settings.provider_for_route("embedding"),
+                        "Модель": _route_model_label(settings, "embedding"),
                     },
                 ]
             ),
             use_container_width=True,
         )
 
-        st.markdown("### Counts")
-        st.dataframe(pd.DataFrame([metrics]), use_container_width=True)
+        st.markdown("### Счётчики")
+        st.dataframe(
+            pd.DataFrame([metrics]).rename(
+                columns={
+                    "documents": "Документы",
+                    "chunks": "Чанки",
+                    "facts": "Факты",
+                    "nodes": "Узлы",
+                    "edges": "Связи",
+                }
+            ),
+            use_container_width=True,
+        )
 
-        st.markdown("### Healthcheck")
-        client = create_llm_client(settings, repository=repository)
+        st.markdown("### Проверка доступности")
         health_columns = st.columns(3)
-        if health_columns[0].button("Проверить answer model"):
+        if health_columns[0].button("Проверить модель ответов"):
+            client = create_llm_client(
+                settings,
+                repository=repository,
+                route="answer",
+            )
             ok, message = client.healthcheck()
             (health_columns[0].success if ok else health_columns[0].error)(message)
-        if health_columns[1].button("Проверить extraction model"):
+        if health_columns[1].button("Проверить модель извлечения"):
+            client = create_llm_client(
+                settings,
+                repository=repository,
+                route="extraction",
+            )
             ok, message = client.healthcheck()
             (health_columns[1].success if ok else health_columns[1].error)(message)
-        if health_columns[2].button("Проверить embedding model"):
+        if health_columns[2].button("Проверить модель embeddings"):
             try:
+                client = create_llm_client(
+                    settings,
+                    repository=repository,
+                    route="embedding",
+                )
                 client.embed_texts(["healthcheck"], operation="healthcheck")
-                health_columns[2].success("Embedding client is available")
+                health_columns[2].success("Клиент embeddings доступен")
             except Exception as exc:
                 health_columns[2].error(str(exc))
 
         if settings.show_admin_debug:
             st.divider()
-            st.markdown("### Debug reset")
-            if st.button("Reset vector index"):
+            st.markdown("### Debug-сброс")
+            if st.button("Сбросить векторный индекс"):
                 if settings.chroma_path.exists():
                     shutil.rmtree(settings.chroma_path)
-                st.success("Vector index reset.")
+                st.success("Векторный индекс сброшен.")
                 st.rerun()
-            if st.button("Reset database and index"):
+            if st.button("Сбросить базу данных и индекс"):
                 _reset_index_and_db(settings)
-                st.success("Database and index reset.")
+                st.success("База данных и индекс сброшены.")
                 st.rerun()
         else:
-            st.caption("Reset buttons hidden. Set SHOW_ADMIN_DEBUG=true to enable them.")
+            st.caption("Кнопки сброса скрыты. Задайте SHOW_ADMIN_DEBUG=true, чтобы включить их.")
 
 
 if __name__ == "__main__":

@@ -104,5 +104,5 @@ def render_graph(edges: pd.DataFrame) -> bool:
         )
         return True
     except Exception as exc:
-        st.warning(f"Граф не удалось построить, показываю таблицу edges: {exc}")
+        st.warning(f"Граф не удалось построить, показываю таблицу связей: {exc}")
         return False

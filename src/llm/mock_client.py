@@ -69,7 +69,7 @@ class MockLLMClient(LLMClient):
             )
 
         return (
-            "Это mock-ответ. Для реального ответа выберите LLM_PROVIDER=yandex "
+            "Это mock-ответ. Для реального ответа выберите ANSWER_LLM_PROVIDER=yandex "
             "и задайте credentials."
         )
 

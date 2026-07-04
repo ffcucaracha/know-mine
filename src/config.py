@@ -13,7 +13,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 @dataclass(frozen=True)
 class Settings:
-    llm_provider: str
     yandex_api_key: str
     yandex_folder_id: str
     yandex_generation_model: str
@@ -49,6 +48,9 @@ class Settings:
     source_path: str = ""
     max_upload_size_mb: int = 200
     max_report_history: int = 200
+    answer_llm_provider: str = "yandex"
+    extraction_llm_provider: str = "ollama"
+    embedding_llm_provider: str = "yandex"
     supported_extensions: list[str] = field(
         default_factory=lambda: [".pdf", ".docx"]
     )
@@ -57,6 +59,16 @@ class Settings:
     @property
     def yandex_credentials_configured(self) -> bool:
         return bool(self.yandex_api_key and self.yandex_folder_id)
+
+    def provider_for_route(self, route: str) -> str:
+        normalized_route = route.strip().lower()
+        if normalized_route == "answer":
+            return self.answer_llm_provider
+        if normalized_route == "extraction":
+            return self.extraction_llm_provider
+        if normalized_route == "embedding":
+            return self.embedding_llm_provider
+        return self.answer_llm_provider
 
 
 def _get_int(name: str, default: int) -> int:
@@ -128,7 +140,6 @@ def get_settings() -> Settings:
     )
 
     return Settings(
-        llm_provider=os.getenv("LLM_PROVIDER", "yandex").strip().lower(),
         yandex_api_key=os.getenv("YANDEX_API_KEY", ""),
         yandex_folder_id=yandex_folder_id,
         yandex_generation_model=yandex_generation_model,
@@ -160,6 +171,9 @@ def get_settings() -> Settings:
         source_path=os.getenv("SOURCE_PATH", "").strip(),
         max_upload_size_mb=_get_int("MAX_UPLOAD_SIZE_MB", 200),
         max_report_history=_get_int("MAX_REPORT_HISTORY", 200),
+        answer_llm_provider=os.getenv("ANSWER_LLM_PROVIDER", "yandex").strip().lower(),
+        extraction_llm_provider=os.getenv("EXTRACTION_LLM_PROVIDER", "ollama").strip().lower(),
+        embedding_llm_provider=os.getenv("EMBEDDING_LLM_PROVIDER", "yandex").strip().lower(),
         supported_extensions=_get_extensions("SUPPORTED_EXTENSIONS", ".pdf,.docx"),
         show_admin_debug=_get_bool("SHOW_ADMIN_DEBUG", False),
         raw_data_dir=BASE_DIR / "data" / "raw",

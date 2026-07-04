@@ -59,8 +59,12 @@ def answer_question(
             parsed_query=parsed_query,
         )
 
-    client = create_llm_client(settings, repository=repository)
-    query_embedding = client.embed_texts(
+    embedding_client = create_llm_client(
+        settings,
+        repository=repository,
+        route="embedding",
+    )
+    query_embedding = embedding_client.embed_texts(
         [parsed_query.normalized_question],
         operation="embedding",
     )[0]
@@ -84,7 +88,8 @@ def answer_question(
         document_context=document_context or "Нет найденных фрагментов документов.",
         facts_context=facts_context or "Нет найденных фактов.",
     )
-    answer = client.generate_text(
+    answer_client = create_llm_client(settings, repository=repository, route="answer")
+    answer = answer_client.generate_text(
         system_prompt=ANSWER_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=settings.llm_temperature,

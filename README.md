@@ -65,7 +65,10 @@ SHOW_ADMIN_DEBUG=true
 ## Формат `.env`
 
 ```env
-LLM_PROVIDER=yandex
+# Supported values per route: yandex, ollama, mock
+ANSWER_LLM_PROVIDER=yandex
+EXTRACTION_LLM_PROVIDER=ollama
+EMBEDDING_LLM_PROVIDER=yandex
 
 YANDEX_API_KEY=
 YANDEX_FOLDER_ID=
@@ -76,7 +79,7 @@ YANDEX_EMBEDDING_MODEL=text-search-doc
 YANDEX_EMBEDDING_MODEL_URI=
 
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_GENERATION_MODEL=qwen2.5:1.5b
+OLLAMA_GENERATION_MODEL=qwen2.5:7b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_EMBEDDING_MAX_CHARS=1000
 
@@ -110,17 +113,50 @@ SUPPORTED_EXTENSIONS=.pdf,.docx
 SHOW_ADMIN_DEBUG=false
 ```
 
-Для локальной отладки без внешнего API можно использовать:
+Для локальной отладки без внешнего API можно использовать `mock` на всех маршрутах:
 
 ```env
-LLM_PROVIDER=mock
+ANSWER_LLM_PROVIDER=mock
+EXTRACTION_LLM_PROVIDER=mock
+EMBEDDING_LLM_PROVIDER=mock
 ```
 
-`mock` нужен для проверки UI, загрузки, чанкинга, retrieval и графа без Yandex credentials. Для реального извлечения фактов, embeddings и ответов используйте `LLM_PROVIDER=yandex`.
+`mock` нужен для проверки UI, загрузки, чанкинга, retrieval и графа без Yandex credentials.
+
+## Route-Based LLM Routing
+
+Know Mine может использовать разные LLM-провайдеры для разных задач:
+
+- `ANSWER_LLM_PROVIDER` — финальный ответ пользователю во вкладке `Вопрос`;
+- `EXTRACTION_LLM_PROVIDER` — извлечение entities/facts/relations для графа знаний;
+- `EMBEDDING_LLM_PROVIDER` — embeddings для ChromaDB index и retrieval.
+
+Пример: answer и embeddings через Yandex Cloud, extraction локально через Ollama/Qwen:
+
+```env
+ANSWER_LLM_PROVIDER=yandex
+EXTRACTION_LLM_PROVIDER=ollama
+EMBEDDING_LLM_PROVIDER=yandex
+
+YANDEX_GENERATION_MODEL=yandexgpt-lite
+YANDEX_EMBEDDING_MODEL=text-search-doc
+
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_GENERATION_MODEL=qwen2.5:7b
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+```
+
+В таком режиме:
+
+- `answer` использует Yandex generation model;
+- `embedding` использует Yandex embedding model;
+- `extraction` использует Ollama generation model, например `qwen2.5:7b`, `qwen3` или `qwen2.5-coder`.
+
+Статистика LLM Usage продолжает группироваться по `operation`: `answer`, `extraction`, `embedding`, `healthcheck`.
 
 ## Ollama Local Provider
 
-Know Mine поддерживает локальный Ollama-провайдер без изменения архитектуры пайплайна: приложение по-прежнему работает через общий `LLMClient`, а провайдер выбирается переменной `LLM_PROVIDER`.
+Know Mine поддерживает локальный Ollama-провайдер без изменения архитектуры пайплайна: приложение по-прежнему работает через общий `LLMClient`, а провайдер выбирается route-based переменными.
 
 Установите и запустите Ollama:
 
@@ -131,16 +167,18 @@ ollama serve
 В отдельном терминале загрузите модели:
 
 ```bash
-ollama pull qwen2.5:1.5b
+ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 ```
 
 Пример `.env` для локального режима:
 
 ```env
-LLM_PROVIDER=ollama
+ANSWER_LLM_PROVIDER=ollama
+EXTRACTION_LLM_PROVIDER=ollama
+EMBEDDING_LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_GENERATION_MODEL=qwen2.5:1.5b
+OLLAMA_GENERATION_MODEL=qwen2.5:7b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_EMBEDDING_MAX_CHARS=1000
 ```
@@ -348,4 +386,4 @@ LLM_USAGE_STORE_HASHES=true
 - Секреты передаются только через `.env`.
 - `.env` добавлен в `.gitignore`.
 - API key не хранится в коде и не выводится в Streamlit UI.
-- Для демо без ключей используйте `LLM_PROVIDER=mock`.
+- Для демо без ключей используйте `ANSWER_LLM_PROVIDER=mock`, `EXTRACTION_LLM_PROVIDER=mock`, `EMBEDDING_LLM_PROVIDER=mock`.
